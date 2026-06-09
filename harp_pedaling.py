@@ -139,8 +139,10 @@ def generate_pedals_dict():
 def spelling_penalty(path):
     """ Add a small penalty for less common spellings:
     Cb, B#, E#, and Fb."""
+    
+    penalty = 0
+    
     for setting in path:
-        penalty = 0
         if setting[1] == -1: # Cb
             penalty += 1
         if setting[2] == 1: # B#
@@ -170,29 +172,93 @@ def get_optimal_pedaling(sequence):
         minimum_penalty = min(score for score, _ in scored_paths)
         final_paths = [path for score, path in scored_paths
                        if score == minimum_penalty]
-        return final_paths
+        unique_spelled_paths = group_paths_by_spelling(sequence, final_paths)
+        return list(unique_spelled_paths.keys())
     except nx.NetworkXNoPath:
-        return [[]]
+        return []
+
+def group_paths_by_spelling(pcsets, paths):
+    """
+    pcset is a list of pitch-class sets. paths is a list of lists of
+    pedal settings.
+
+    Returns a dictionary where the keys are sequences of uniquely spelled
+    pitch-class sets (tuples of tuples) and the values are the corresponding
+    list of pedal settings.
+    """
+
+    unique_spellings = {}
+
+    for path in paths:
+        slices = get_spelling_options(pcsets, path)
+        for option in product(*slices):
+            if option not in unique_spellings:
+                unique_spellings[option] = path
+    return unique_spellings
+
+def get_spelling_options(pcsets, settings):
+    """
+    pcsets is a list of pitch-class sets. settings is a list of harp
+    pedal settings.
+
+    Returns a list of lists of spelled pitch classes that are consistent
+    with the sequence of pedal settings.
+    """
+    slices = []
+    
+    for pcset, setting in zip(pcsets, settings):
+        slice_options = spelled_pcset(pcset, setting)
+        slices.append(slice_options)
+
+    return slices
+
+def spelled_pcset(pcset, setting):
+    """
+    pcset if a set of pitches and setting is a pedal setting in the
+    form of a 7-tuple; e.g. (0, 1, -1, 0, 0, 0, 0).
+
+    Returns a list of tuples, each tuple corresponding to a valid spelling
+    of pcset given setting.
+    """
+
+    letters = ('D', 'C', 'B', 'E', 'F', 'G', 'A')
+    accidentals = {-1 : '-', 0 : '', 1 : '+'}
+    base_vector = (2, 0, 11, 4, 5, 7, 9)
+    slice_options = []
+
+    for pc in pcset:
+        pc_options = []
+        for i in range(7):
+            if pc == (base_vector[i] + setting[i]) % 12:
+                letter = letters[i]
+                accidental = accidentals[setting[i]]
+                pc_options.append("{}{}".format(letter, accidental))
+
+        if not pc_options:
+            return []
+
+        slice_options.append(pc_options)
+
+    valid_combinations = [tuple(combo) for combo in product(*slice_options)]
+    
+    return valid_combinations
 
 if __name__ == "__main__":
     test0 = [set([0, 2, 4, 5, 7, 9, 11]),
              set([0, 2, 4, 6, 9, 11])]
 
-    answer0 = [[(0, 0, 0, 0, 0, 0, 0),
-                (0, 0, 0, 0, 0, -1, 0)],
-               [(0, 0, 0, 0, 0, 0, 0),
-                (0, 0, 0, 0, 1, 0, 0)]]
+    answer0 = [(('C', 'D', 'E', 'F', 'G', 'A', 'B'),
+                ('C', 'D', 'E', 'G-', 'A', 'B')),
+               (('C', 'D', 'E', 'F', 'G', 'A', 'B'),
+                ('C', 'D', 'E', 'F+', 'A', 'B'))]
     
     test1 = [set([0, 2, 4, 5, 7, 9, 11]),
              set([2, 4, 6, 7, 9, 11]),
              set([1, 2, 4, 6, 7, 9, 11])]
 
-    answer1 = [[(0, 0, 0, 0, 0, 0, 0),
-                (0, 0, 0, 0, 1, 0, 0),
-                (0, 1, 0, 0, 1, 0, 0)],
-               [(0, 0, 0, 0, 0, 0, 0),
-                (0, 1, 0, 0, 1, 0, 0),
-                (0, 1, 0, 0, 1, 0, 0)]]
+    answer1 = [(('C', 'D', 'E', 'F', 'G', 'A', 'B'),
+                ('D', 'E', 'F+', 'G', 'A', 'B'),
+                ('C+', 'D', 'E', 'F+', 'G', 'A', 'B'))]
 
     test2 = [set([0, 4, 7]),
              set([9, 1, 4]),
@@ -200,47 +266,27 @@ if __name__ == "__main__":
              set([3, 7, 10]),
              set([11, 3, 6, 9])]
 
-    answer2 = [[(-1, 0, -1, 0, 1, 0, 0),
-                (-1, 0, -1, 0, 1, 0, 0),
-                (-1, 0, -1, 0, 1, 0, 0),
-                (1, 0, -1, 0, 1, 0, 0),
-                (1, 0, 0, 0, 1, 0, 0)],
-               [(-1, 0, -1, 0, 1, 0, 0),
-                (-1, 0, -1, 0, 1, 0, 0),
-                (-1, 0, -1, 0, 1, 0, 0),
-                (-1, 0, -1, -1, 1, 0, 0),
-                (-1, 0, 0, -1, 1, 0, 0)],
-               [(-1, 0, -1, 0, 1, 0, 0),
-                (-1, 0, -1, 0, 1, 0, 0),
-                (-1, 0, -1, -1, 1, 0, 0),
-                (-1, 0, -1, -1, 1, 0, 0),
-                (-1, 0, 0, -1, 1, 0, 0)],
-               [(-1, 0, -1, -1, -1, 0, 0),
-                (-1, 0, -1, -1, -1, 0, 0),
-                (-1, 0, -1, -1, 1, 0, 0),
-                (-1, 0, -1, -1, 1, 0, 0),
-                (-1, 0, 0, -1, 1, 0, 0)],
-               [(1, 1, 1, 0, 1, 0, 0),
-                (1, 1, 1, 0, 1, 0, 0),
-                (1, 1, -1, 0, 1, 0, 0),
-                (1, 1, -1, 0, 1, 0, 0),
-                (1, 1, 0, 0, 1, 0, 0)],
-               [(1, 1, 1, 0, 1, 0, 0),
-                (1, 1, -1, 0, 1, 0, 0),
-                (1, 1, -1, 0, 1, 0, 0),
-                (1, 1, -1, 0, 1, 0, 0),
-                (1, 1, 0, 0, 1, 0, 0)],
-               [(1, 0, -1, 0, 1, 0, 0),
-                (1, 1, -1, 0, 1, 0, 0),
-                (1, 1, -1, 0, 1, 0, 0),
-                (1, 1, -1, 0, 1, 0, 0),
-                (1, 1, 0, 0, 1, 0, 0)]]
+    answer2 = [(('C', 'E', 'G'),
+                ('A', 'E', 'D-'),
+                ('D-', 'B-', 'F+'),
+                ('B-', 'D+', 'G'),
+                ('D+', 'A', 'B', 'F+')),
+               (('C', 'E', 'G'),
+                ('A', 'E', 'D-'),
+                ('D-', 'B-', 'F+'),
+                ('B-', 'E-', 'G'),
+                ('E-', 'A', 'B', 'F+')),
+               (('C', 'E', 'G'),
+                ('A', 'E', 'C+'),
+                ('C+', 'B-', 'F+'),
+                ('B-', 'D+', 'G'),
+                ('D+', 'A', 'B', 'F+'))]
 
     test3 = [set([11, 0, 1, 3, 4, 7, 9]),
              set([11, 0, 1, 3, 4, 6, 8])]
 
-    answer3 = [[(-1, 0, 0, -1, -1, 0, 0),
-                (-1, 0, 0, -1, -1, -1, -1)]]
+    answer3 = [(('C', 'D-', 'E-', 'F-', 'G', 'A', 'B'),
+                ('C', 'D-', 'E-', 'F-', 'G-', 'A-', 'B'))]
 
     test4 = [set([9, 2, 4, 5]),
              set([8, 2, 4, 5]),
@@ -255,7 +301,7 @@ if __name__ == "__main__":
              set([8, 4, 10, 0, 5]),
              set([7, 8, 9])]
 
-    answer4 = [[]]
+    answer4 = []
 
     test5 = [set([4, 8, 11]),
              set([1, 5, 8]),
@@ -263,120 +309,52 @@ if __name__ == "__main__":
              set([7, 11, 2]),
              set([3, 7, 10, 1])]
 
-    answer5 = [[(0, 1, 0, 0, 0, 1, 1),
-                (0, 1, 0, 0, 0, 1, 1),
-                (0, 1, 0, 0, 0, 1, 1),
-                (0, 1, 0, 0, 0, 0, 1),
-                (1, 1, 0, 0, 0, 0, 1)],
-               [(0, 1, 0, 0, 0, 0, -1),
-                (0, 1, 0, 0, 0, 0, -1),
-                (0, 1, 0, 0, 0, 0, 1),
-                (0, 1, 0, 0, 0, 0, 1),
-                (1, 1, 0, 0, 0, 0, 1)],
-               [(0, 1, 0, 0, 0, 1, 1),
-                (0, 1, 0, 0, 0, 1, 1),
-                (0, 1, 0, 0, 0, 0, 1),
-                (0, 1, 0, 0, 0, 0, 1),
-                (1, 1, 0, 0, 0, 0, 1)],
-               [(0, 1, 0, 0, 0, 1, 1),
-                (0, 1, 0, 0, 0, 1, 1),
-                (0, 1, 0, 0, 0, 1, 1),
-                (0, 1, 0, 0, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1)],
-               [(0, 1, 0, 0, 0, 0, -1),
-                (0, 1, 0, 0, 0, 0, -1),
-                (0, 1, 0, 0, 0, 0, 1),
-                (0, 1, 0, 0, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1)],
-               [(0, 1, 0, 0, 0, 1, 1),
-                (0, 1, 0, 0, 0, 1, 1),
-                (0, 1, 0, 0, 0, 0, 1),
-                (0, 1, 0, 0, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1)],
-               [(0, 1, 0, 0, 0, 0, -1),
-                (0, 1, 0, 0, 0, 0, -1),
-                (0, 1, 0, 0, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1)],
-               [(0, 1, 0, 0, 0, 1, 1),
-                (0, 1, 0, 0, 0, 1, 1),
-                (0, 1, 0, 0, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1)],
-               [(0, 1, 0, 0, 0, 1, 1),
-                (0, 1, 0, 0, 0, 1, 1),
-                (0, 1, 0, -1, 0, 1, 1),
-                (0, 1, 0, -1, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1)],
-               [(0, 1, 0, 0, 0, 1, 1),
-                (0, 1, 0, -1, 0, 1, 1),
-                (0, 1, 0, -1, 0, 1, 1),
-                (0, 1, 0, -1, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1)],
-               [(0, 1, 0, -1, -1, 1, 1),
-                (0, 1, 0, -1, 0, 1, 1),
-                (0, 1, 0, -1, 0, 1, 1),
-                (0, 1, 0, -1, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1)],
-               [(0, 1, 0, 0, 0, 0, -1),
-                (0, 1, 0, -1, 0, 0, -1),
-                (0, 1, 0, -1, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1)],
-               [(0, 1, 0, -1, -1, 0, -1),
-                (0, 1, 0, -1, 0, 0, -1),
-                (0, 1, 0, -1, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1)],
-               [(0, 1, 0, 0, 0, 1, 1),
-                (0, 1, 0, -1, 0, 1, 1),
-                (0, 1, 0, -1, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1)],
-               [(0, 1, 0, -1, -1, 1, 1),
-                (0, 1, 0, -1, 0, 1, 1),
-                (0, 1, 0, -1, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1),
-                (0, 1, 0, -1, 0, 0, 1)]]
+    answer5 = [(('G+', 'B', 'E'),
+                ('G+', 'C+', 'F'),
+                ('A+', 'D', 'F'),
+                ('D', 'B', 'G'),
+                ('C+', 'A+', 'D+', 'G')),
+               (('A-', 'B', 'E'),
+                ('A-', 'C+', 'F'),
+                ('A+', 'D', 'F'),
+                ('D', 'B', 'G'),
+                ('C+', 'A+', 'D+', 'G')),
+               (('G+', 'B', 'E'),
+                ('G+', 'C+', 'F'),
+                ('A+', 'D', 'F'),
+                ('D', 'B', 'G'),
+                ('C+', 'A+', 'E-', 'G')),
+               (('A-', 'B', 'E'),
+                ('A-', 'C+', 'F'),
+                ('A+', 'D', 'F'),
+                ('D', 'B', 'G'),
+                ('C+', 'A+', 'E-', 'G'))]
 
     test6 = [set([2, 8, 0, 4, 6, 1]),
              set([8, 2, 6, 10, 0]),
              set([7, 1, 5, 11, 6, 10])]
 
-    answer6 = [[(0, 1, 1, 0, 1, 1, 1),
-                (0, 1, 1, 1, 1, 1, 1),
-                (0, 1, 0, 1, 1, 0, 1)]]
+    answer6 = [(('B+', 'C+', 'D', 'E', 'F+', 'G+'),
+                ('B+', 'D', 'F+', 'G+', 'A+'),
+                ('C+', 'E+', 'F+', 'G', 'A+', 'B'))]
 
     # test7
     pcs = [2, 9, 6, 9, 2, 10, 7, 10, 9, 8, 3, 8, 7]
     test7 = [set([pc]) for pc in pcs]
 
-    answer7 = [[(0, 0, -1, -1, 1, 0, 0),
-                (0, 0, -1, -1, 1, 0, 0),
-                (0, 0, -1, -1, 1, 0, 0),
-                (0, 0, -1, -1, 1, 0, 0),
-                (0, 0, -1, -1, 1, 0, 0),
-                (0, 0, -1, -1, 1, 0, 0),
-                (0, 0, -1, -1, 1, 0, 0),
-                (0, 0, -1, -1, 1, 0, 0),
-                (0, 0, -1, -1, 1, 0, 0),
-                (0, 0, -1, -1, 1, 0, -1),
-                (0, 0, -1, -1, 1, 0, -1),
-                (0, 0, -1, -1, 1, 0, -1),
-                (0, 0, -1, -1, 1, 0, -1)],
-               [(0, 1, -1, -1, 1, 0, 0),
-                (0, 1, -1, -1, 1, 0, 0),
-                (0, 1, -1, -1, 1, 0, 0),
-                (0, 1, -1, -1, 1, 0, 0),
-                (0, 1, -1, -1, 1, 0, 0),
-                (0, 1, -1, -1, 1, 0, 0),
-                (0, 1, -1, -1, 1, 0, 0),
-                (0, 1, -1, -1, 1, 0, 0),
-                (0, 1, -1, -1, 1, 0, 0),
-                (0, 1, -1, -1, 1, 0, -1),
-                (0, 1, -1, -1, 1, 0, -1),
-                (0, 1, -1, -1, 1, 0, -1),
-                (0, 1, -1, -1, 1, 0, -1)]]
+    answer7 = [(('D',),
+                ('A',),
+                ('F+',),
+                ('A',),
+                ('D',),
+                ('B-',),
+                ('G',),
+                ('B-',),
+                ('A',),
+                ('A-',),
+                ('E-',),
+                ('A-',),
+                ('G',))]
 
     tests = [test0, test1, test2, test3, test4, test5, test6]
     answers = [answer0, answer1, answer2, answer3, answer4, answer5, answer6]
