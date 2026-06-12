@@ -13,10 +13,10 @@ class TestHarpPedaling(unittest.TestCase):
                    (('C', 'D', 'E', 'F', 'G', 'A', 'B'),
                     ('C', 'D', 'E', 'F#', 'A', 'B'))]
 
-        self.assertEqual(get_optimal_pedaling(test), answer)
+        self.assertSpellingEqual(get_optimal_pedaling(test), answer)
 
     def test_figure_1(self):
-        """Test the five-chord example from Figure 1 in the paper.
+        """Test the five-chord example from Figure 1 (g-i) in the paper.
 
         With the prefer_common_spellings filter set to True, returns four
         equally optimal solutions. Essentially, one can use Ab or G# in the
@@ -49,7 +49,7 @@ class TestHarpPedaling(unittest.TestCase):
                    ('D', 'B', 'G'),
                    ('C#', 'A#', 'E-', 'G'))]
 
-        self.assertEqual(get_optimal_pedaling(test), answer)
+        self.assertSpellingEqual(get_optimal_pedaling(test), answer)
 
     def test_multi_pedal_allowed(self):
         """Simple test that multi-pedal moves, constrained as detailed in the
@@ -65,13 +65,14 @@ class TestHarpPedaling(unittest.TestCase):
         self.assertEqual(get_optimal_pedaling(test), answer)
 
     def test_sigma_high_enough(self):
-        """Test is the penalty for a multi-pedal move (sigma=3) is high enough.
+        """Test of the penalty for a multi-pedal move (sigma > 2).
 
         The test case moves from a Hungarian minor scale to a six-note subset
-        of the harmonic major scale. This move can either be accomplished by a
-        single pedal move with each foot (D/E# to D#/E) or a multi-pedal move
-        with a single foot (E#/F# to Eb, Fb). For any value of sigma > 2,
-        the algorithm will prefer the former move over the latter.
+        of the harmonic major scale. This move can either be accomplished by
+        two different single pedal move with each foot (D/E# to D#/E or
+        D/F# to D#/Fb) or a multi-pedal move with a single foot (E#/F# to Eb,
+        Fb). For any value of sigma > 2, the algorithm will prefer the combined
+        single-pedal moves over the multi-pedal move.
         """
 
         test = [set([11, 1, 2, 5, 6, 7, 10]),
@@ -85,84 +86,95 @@ class TestHarpPedaling(unittest.TestCase):
         self.assertNotIn(multi_pedal_solution, second_slices)
 
     def test_dear_matafele_peinam_original(self):
-        test4 = [set([9, 2, 4, 5]),
-                 set([8, 2, 4, 5]),
-                 set([7, 1, 2, 5]),
-                 set([6, 10, 1, 2, 5]),
-                 set([4, 10, 0, 3, 5]),
-                 set([3, 11, 2, 5]),
-                 set([1, 9, 2, 4, 5]),
-                 set([0, 8, 2, 4, 5]),
-                 set([11, 7, 1, 2, 5]),
-                 set([10, 6, 9, 1, 2, 5]),
-                 set([8, 4, 10, 0, 5]),
-                 set([7, 8, 9])]
+        """Test of a sequence that does not have a solutions. There are no
+        enharmonic spellings that render this playable on the harp.
+        """
+        test = [set([9, 2, 4, 5]),
+                set([8, 2, 4, 5]),
+                set([7, 1, 2, 5]),
+                set([6, 10, 1, 2, 5]),
+                set([4, 10, 0, 3, 5]),
+                set([3, 11, 2, 5]),
+                set([1, 9, 2, 4, 5]),
+                set([0, 8, 2, 4, 5]),
+                set([11, 7, 1, 2, 5]),
+                set([10, 6, 9, 1, 2, 5]),
+                set([8, 4, 10, 0, 5]),
+                set([7, 8, 9])]
 
-        answer4 = []
+        answer = []
 
-        self.assertEqual(get_optimal_pedaling(test4), answer4)
+        self.assertEqual(get_optimal_pedaling(test), answer)
 
 
     def test_figure_1_transposed(self):
-        test5 = [set([0, 4, 7]),
-                 set([9, 1, 4]),
-                 set([6, 10, 1]),
-                 set([3, 7, 10]),
-                 set([11, 3, 6, 9])]
+        """Test of the five-chord progression in figure 1 transposed.
 
-        answer5 = [(('C', 'E', 'G'),
-                    ('A', 'E', 'D-'),
-                    ('D-', 'B-', 'F#'),
-                    ('B-', 'D#', 'G'),
-                    ('D#', 'A', 'B', 'F#')),
-                   (('C', 'E', 'G'),
-                    ('A', 'E', 'D-'),
-                    ('D-', 'B-', 'F#'),
-                    ('B-', 'E-', 'G'),
-                    ('E-', 'A', 'B', 'F#')),
-                   (('C', 'E', 'G'),
-                    ('A', 'E', 'C#'),
-                    ('C#', 'B-', 'F#'),
-                    ('B-', 'D#', 'G'),
-                    ('D#', 'A', 'B', 'F#'))]
+        In this case, there are only three optimal solutions returned (when
+        prefer_common_spellings is set to the default of True).
+        """
+        test = [set([0, 4, 7]),
+                set([9, 1, 4]),
+                set([6, 10, 1]),
+                set([3, 7, 10]),
+                set([11, 3, 6, 9])]
 
-        self.assertEqual(get_optimal_pedaling(test5), answer5)
+        answer = [(('C', 'E', 'G'),
+                   ('A', 'E', 'D-'),
+                   ('D-', 'B-', 'F#'),
+                   ('B-', 'D#', 'G'),
+                   ('D#', 'A', 'B', 'F#')),
+                  (('C', 'E', 'G'),
+                   ('A', 'E', 'D-'),
+                   ('D-', 'B-', 'F#'),
+                   ('B-', 'E-', 'G'),
+                   ('E-', 'A', 'B', 'F#')),
+                  (('C', 'E', 'G'),
+                   ('A', 'E', 'C#'),
+                   ('C#', 'B-', 'F#'),
+                   ('B-', 'D#', 'G'),
+                   ('D#', 'A', 'B', 'F#'))]
+
+        self.assertSpellingEqual(get_optimal_pedaling(test), answer)
 
     def test_figure_2(self):
-        test6 = [set([2, 8, 0, 4, 6, 1]),
-                 set([8, 2, 6, 10, 0]),
-                 set([7, 1, 5, 11, 6, 10])]
+        "Test of figure 2 in the paper."
+        test = [set([2, 8, 0, 4, 6, 1]),
+                set([8, 2, 6, 10, 0]),
+                set([7, 1, 5, 11, 6, 10])]
 
-        answer6 = [(('B#', 'C#', 'D', 'E', 'F#', 'G#'),
-                    ('B#', 'D', 'F#', 'G#', 'A#'),
-                    ('C#', 'E#', 'F#', 'G', 'A#', 'B'))]
+        answer = [(('B#', 'C#', 'D', 'E', 'F#', 'G#'),
+                   ('B#', 'D', 'F#', 'G#', 'A#'),
+                   ('C#', 'E#', 'F#', 'G', 'A#', 'B'))]
 
-        self.assertEqual(get_optimal_pedaling(test6), answer6)
+        self.assertEqual(get_optimal_pedaling(test), answer)
 
     @unittest.skip("Skipping test 7 manually")
     def test_7_long_sequence(self):
+        """Sequence taken from the harp part in Mahler's Kindertotenlieder."""
         pcs = [2, 9, 6, 9, 2, 10, 7, 10, 9, 8, 3, 8, 7]
-        test7 = [set([pc]) for pc in pcs]
+        test = [set([pc]) for pc in pcs]
 
-        answer7 = [(('D',),
-                    ('A',),
-                    ('F#',),
-                    ('A',),
-                    ('D',),
-                    ('B-',),
-                    ('G',),
-                    ('B-',),
-                    ('A',),
-                    ('A-',),
-                    ('E-',),
-                    ('A-',),
-                    ('G',))]
+        answer = [(('D',),
+                   ('A',),
+                   ('F#',),
+                   ('A',),
+                   ('D',),
+                   ('B-',),
+                   ('G',),
+                   ('B-',),
+                   ('A',),
+                   ('A-',),
+                   ('E-',),
+                   ('A-',),
+                   ('G',))]
 
-        self.assertEqual(get_optimal_pedaling(test7), answer7)
+        self.assertEqual(get_optimal_pedaling(test), answer)
 
     def test_prefer_common_spellings_flag(self):
-        # A passage where the readability filter discards some equally
-        # pedal-optimal spellings (e.g. those using Cb/B#/E#/Fb).
+        """Test that the readability filter discards some equally-optimal
+        pedalings in the progression of figure 1 (g-i).
+        """
         passage = [{4, 8, 11}, {1, 5, 8}, {10, 2, 5}, {7, 11, 2}, {3, 7, 10, 1}]
 
         filtered = get_optimal_pedaling(passage)  # default: True
@@ -174,8 +186,10 @@ class TestHarpPedaling(unittest.TestCase):
         self.assertTrue(unfiltered)
 
     def test_prefer_common_spellings_no_solution(self):
-        # An unplayable passage returns [] under BOTH flag settings
-        # (guards the False branch against returning None).
+        """Test that the unplayable passage from the original progression in
+        Dear Matafele Peinam is flagged regardless of whether
+        prefer_common_spellings is True or False.
+        """
         unplayable = [{9, 2, 4, 5}, {8, 2, 4, 5}, {7, 1, 2, 5}, {6, 10, 1, 2, 5},
                       {4, 10, 0, 3, 5}, {3, 11, 2, 5}, {1, 9, 2, 4, 5},
                       {0, 8, 2, 4, 5}, {11, 7, 1, 2, 5}, {10, 6, 9, 1, 2, 5},
