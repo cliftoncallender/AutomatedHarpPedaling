@@ -1,29 +1,120 @@
+"""
+Automated harp pedaling: a graph-theoretic approach to pitch spelling and
+pedal settings.
+
+This module optimizes music for the harp by finding enharmonic spellings that
+minimize the number of pedal changes necessary. It implements the approach
+described in:
+
+    Clifton Callender, "Automated Harp Pedaling: A Graph-Theoretic Approach
+    to Pitch Spelling and Pedal Settings," in Mathematics and Computation in
+    Music (MCM 2026), LNAI 16609, Springer, pp. 603-616.
+    https://doi.org/10.1007/978-3-032-27827-2_36
+
+Overview
+--------
+Passages for harp are modeled as sequences of pitch-class sets, one for each
+musical "slice". A directed trellis graph is constructed whereby 1) each layer
+corresponds to a musical slice, 2) the nodes of each layer are the pedal
+settings capable of producing the corresponding pitch-class set, and 3) edges
+connecting nodes in adjacent layers are weighted according to a cost function
+modeling pedal changes. Optimal enharmonic respellings are found through an
+all-shortest-paths search through the trellis graph (via networkx). The
+algorithm also detects impossible passages with no solutions that are
+unplayable on the harp.
+
+Each of the harp's seven pedals (in order D, C, B, E, F, G, A) can be in one
+of three positions: flat (-1), natural (0), or sharp (1). A pedal setting is
+thus a seven-tuple, s in {-1, 0, 1}^7.
+
+The pedals are divided between those controlled by the left foot (D, C, B) and
+those controlled by the right (E, F, G, A). In general, a single foot can only
+change a single pedal at a time, with the exception of multi-pedal moves
+involving adjacent pedals moving from and to the same positions.
+
+Input format
+------------
+A sequence is a list of Python sets of integers mod 12, with B#/C=0, C#/Db=1,
+..., B/Cb=11. For example, an E major triad followed by a Db major triad would
+be the sequence
+
+    [{4, 8, 11}, {1, 5, 8}].
+
+Each set represents the distinct pitch classes in a given musical slice.
+
+Output format
+-------------
+The primary function to be called, get_optimal_pedaling, returns a list of
+spelled passages, where each uniquely spelled sequence is a tuple of slices and
+each slice is a tuple of note names. Note names are strings combining a letter
+name with an optional modifier for accidentals, where '#' indicates a sharp and
+'-' indicates a flat. (This is consistent with music21's format for spelled
+pitch classes.)
+
+For example, if the input corresponds to figure 2 from the paper, then the
+input is [{2, 8, 0, 4, 6, 1}, {8, 2, 6, 10, 0}, {7, 1, 5, 11, 6, 10}]. There is
+only one optimal spelling of this three-chord progression, i.e., the spelling
+that minimizes pedal changes (other spellings are playable but require more
+pedal changes). Therefore, the output is a list of a single tuple, which
+contains a sequence of three tuples, one for each slice:
+
+    [(('B#', 'C#', 'D', 'E', 'F#', 'G#'), ('B#', 'D', 'F#', 'G#', 'A#'),
+      ('C#', 'E#', 'F#', 'G', 'A#', 'B'))]
+
+(The order of the inner tuples for each slice is immaterial.)
+
+Passages with more than one solution will have an output with multiple outer
+tuples. Passages with no solutions will return an empty list, [].
+
+get_optimal_pedaling
+--------------------
+    from harp_pedaling import get_optimal_pedaling
+
+    passage = [{4, 8, 11}, {1, 5, 8}]
+    for spelled_passage in get_optimal_pedaling(passage):
+        # do something with the two 3-tuples in spelled_passage
+
+By default, all equally-optimal spellings of a passage are filtered through a
+readability block that penalizes less common enharmonic spellings B#, Cb, E#,
+and Fb. In order to return all possible spellings as described in the paper,
+call get_optimal_pedaling with the keyword argument prefer_common_spellings=False.
+
+Dependencies: Python 3.7+ and networkx.
+"""
+
 from itertools import product
 import networkx as nx
 from functools import lru_cache
 
 class Pedal_Graph:
-    "Class for creating graph of pedal settings and finding the shortest path."
+    """Class for creating graph of pedal settings and finding the shortest path.
+
+    Typically used indirectly as part of get_optimal_pedaling(). To use
+    directly, instantiate the class, add a list of pitch-class sets to be
+    optimized (add_sequence()), then process(). The resulting self.graph is a
+    networkx DiGraph whose nodes consist of pedal setting / layer index pairs
+    plus 'start' and 'end' nodes.
+    """
 
     def __init__(self):
         self.all_settings = self.generate_all_settings()
-        self.letters = ["D", "C", "B", "E", "F", "G", "A"]
-        self.accidentals = ["♭", "♮", "♯"]
 
     def generate_all_settings(self):
+        """Return the set of all 3^7 = 2187 possible pedal settings."""
         return set([setting for setting in product([-1, 0, 1], repeat=7)])
 
     def add_sequence(self, sequence):
+        """Store the passage (a list of pitch-class sets) to be optimized."""
         self.sequence = [chord for chord in sequence]
 
     def process(self):
+        """Build the trellis graph: create layers, then weight all edges."""
         self.graph = nx.DiGraph()
         self._generate_layers()
         self._generate_edges()
 
     def _generate_layers(self):
-        # start node
-        node = ('start', 0)
+        node = ('start', 0) # start node
         self.graph.add_node(node)
         self.layers = [set([node])]
 
@@ -35,8 +126,7 @@ class Pedal_Graph:
                 self.graph.add_node(node)
                 self.layers[-1].add(node)
 
-        # end node
-        node = ('end', len(self.layers))
+        node = ('end', len(self.layers)) # end node
         self.graph.add_node(node)
         self.layers.append(set([node]))
 
@@ -62,8 +152,20 @@ class Pedal_Graph:
                     if weight is not None:
                         self.graph.add_edge(node1, node2, weight=weight)
 
+    @staticmethod
     @lru_cache(maxsize=None)
-    def pedal_weight(self, setting1, setting2):
+    def pedal_weight(setting1, setting2):
+        """Cost function for moving from setting1 to setting2.
+
+        Total cost is the sum of the cost per foot.
+
+        Cost per foot: 0 or 1 for changing zero or one pedal;
+                       3 for an adjacent multi-pedal move;
+                       None for anything a single foot cannot execute.
+        Edges from 'start' and to 'end' nodes cost 0.
+
+        A None return signals the edge should be omitted from the graph.
+        """
         if setting1 == 'start' or setting2 == 'end':
             return 0
 
@@ -82,14 +184,25 @@ class Pedal_Graph:
             diff = sum(1 for x, y in zip(state1, state2) if x != y)
             if diff <=1:
                 weight += diff
-            elif self.is_multi_pedal(state1, state2):
+            elif Pedal_Graph.is_multi_pedal(state1, state2):
                 weight += 3
             else:
                 return None
         return weight
 
-    def is_multi_pedal(self, state1, state2):
-        # which pedal change?
+    @staticmethod
+    def is_multi_pedal(state1, state2):
+        """Test to see if the move from state1 to state2 is a multi-pedal move.
+
+        A multi-pedal move consists of a pair of adjacent pedals controlled
+        by a single foot, where the pedals begin and end in the same position.
+
+        For example, D♮ C♮ → D♯ C♯ is an example of a multi-pedal move,
+        since the D and C pedals are adjacent and begin and end in the same
+        position, while D♮ C♭ → D♯ C♯ is not an example of a multi-pedal move,
+        since the pedals do not begin in the same position.
+        """
+        # which pedals change?
         changed_pedals = [i for i, (x, y) in enumerate(zip(state1, state2))
                           if x != y]
 
@@ -109,39 +222,11 @@ class Pedal_Graph:
 
         return True
 
-    def setting_to_letters(self, setting):
-        """Return pedal setting as letters."""
-        output = ""
-        for letter, position in zip(self.letters, setting):
-            output += "{}{} ".format(letter, self.accidentals[position + 1])
-            if letter == "B":
-                output += "| "
-        return output
-
-
-def pcs_to_settings(pcs, settings):
-    result = set()
-    for setting in settings:
-        pc_set = setting_to_pcs(setting)
-        for pc in pcs:
-            if pc not in pc_set:
-                break
-        else:
-            result.add(setting)
-    return result
-
-def generate_pedals_dict():
-    pedal = dict()
-    for setting in product([-1, 0, 1], repeat=7):
-        pedal[setting] = setting_to_pcs(setting)
-    return pedal
-
 def spelling_penalty(path):
-    """ Add a small penalty for less common spellings:
-    Cb, B#, E#, and Fb."""
-    
+    """Add a small penalty for less common spellings: Cb, B#, E#, and Fb."""
+
     penalty = 0
-    
+
     for setting in path:
         if setting[1] == -1: # Cb
             penalty += 1
@@ -153,7 +238,24 @@ def spelling_penalty(path):
             penalty += 1
     return penalty
 
-def get_optimal_pedaling(sequence):
+def get_optimal_pedaling(sequence, prefer_common_spellings=True):
+    """
+    Optimizes enharmonic spellings of a sequence of pitch-class sets to
+    minimize the number of pedal changes.
+
+    The primary optimization involves constructing a trellis graph of possible
+    pedal settings as nodes and edge weights based on pedal changes between
+    settings, then finding all shortest paths through the graph using
+    networkx. (See paper for details.)
+
+    Since preserving all optimal paths can yield trivially distinct but
+    but difficult to read sequences of rare enharmonic spellings (e.g.
+    substituting Cb/B# for B/C), there is a secondary optimization that
+    penalizes the enharmonic spellings B#, Cb, E#, and Fb. When
+    prefer_common_spellings is set to True (the default), these paths are
+    filtered from the list. When set to False, all shortest paths are
+    preserved (as discussed in the paper).
+    """
     P = Pedal_Graph()
     P.add_sequence(sequence)
     P.process()
@@ -167,15 +269,17 @@ def get_optimal_pedaling(sequence):
         for path in best_paths:
             cleaned_path = [node[0] for node in path[1:-1]]
             paths.append(cleaned_path)
-
-        scored_paths = [(spelling_penalty(path), path) for path in paths]
-        minimum_penalty = min(score for score, _ in scored_paths)
-        final_paths = [path for score, path in scored_paths
-                       if score == minimum_penalty]
-        unique_spelled_paths = group_paths_by_spelling(sequence, final_paths)
-        return list(unique_spelled_paths.keys())
     except nx.NetworkXNoPath:
         return []
+
+    if prefer_common_spellings:
+        scored_paths = [(spelling_penalty(path), path) for path in paths]
+        minimum_penalty = min(score for score, _ in scored_paths)
+        paths = [path for score, path in scored_paths
+                 if score == minimum_penalty]
+
+    unique_spelled_paths = group_paths_by_spelling(sequence, paths)
+    return list(unique_spelled_paths.keys())
 
 def group_paths_by_spelling(pcsets, paths):
     """
@@ -205,7 +309,7 @@ def get_spelling_options(pcsets, settings):
     with the sequence of pedal settings.
     """
     slices = []
-    
+
     for pcset, setting in zip(pcsets, settings):
         slice_options = spelled_pcset(pcset, setting)
         slices.append(slice_options)
@@ -222,7 +326,7 @@ def spelled_pcset(pcset, setting):
     """
 
     letters = ('D', 'C', 'B', 'E', 'F', 'G', 'A')
-    accidentals = {-1 : '-', 0 : '', 1 : '+'}
+    accidentals = {-1 : '-', 0 : '', 1 : '#'}
     base_vector = (2, 0, 11, 4, 5, 7, 9)
     slice_options = []
 
@@ -240,7 +344,7 @@ def spelled_pcset(pcset, setting):
         slice_options.append(pc_options)
 
     valid_combinations = [tuple(combo) for combo in product(*slice_options)]
-    
+
     return valid_combinations
 
 if __name__ == "__main__":
@@ -250,15 +354,15 @@ if __name__ == "__main__":
     answer0 = [(('C', 'D', 'E', 'F', 'G', 'A', 'B'),
                 ('C', 'D', 'E', 'G-', 'A', 'B')),
                (('C', 'D', 'E', 'F', 'G', 'A', 'B'),
-                ('C', 'D', 'E', 'F+', 'A', 'B'))]
-    
+                ('C', 'D', 'E', 'F#', 'A', 'B'))]
+
     test1 = [set([0, 2, 4, 5, 7, 9, 11]),
              set([2, 4, 6, 7, 9, 11]),
              set([1, 2, 4, 6, 7, 9, 11])]
 
     answer1 = [(('C', 'D', 'E', 'F', 'G', 'A', 'B'),
-                ('D', 'E', 'F+', 'G', 'A', 'B'),
-                ('C+', 'D', 'E', 'F+', 'G', 'A', 'B'))]
+                ('D', 'E', 'F#', 'G', 'A', 'B'),
+                ('C#', 'D', 'E', 'F#', 'G', 'A', 'B'))]
 
     test2 = [set([0, 4, 7]),
              set([9, 1, 4]),
@@ -268,19 +372,19 @@ if __name__ == "__main__":
 
     answer2 = [(('C', 'E', 'G'),
                 ('A', 'E', 'D-'),
-                ('D-', 'B-', 'F+'),
-                ('B-', 'D+', 'G'),
-                ('D+', 'A', 'B', 'F+')),
+                ('D-', 'B-', 'F#'),
+                ('B-', 'D#', 'G'),
+                ('D#', 'A', 'B', 'F#')),
                (('C', 'E', 'G'),
                 ('A', 'E', 'D-'),
-                ('D-', 'B-', 'F+'),
+                ('D-', 'B-', 'F#'),
                 ('B-', 'E-', 'G'),
-                ('E-', 'A', 'B', 'F+')),
+                ('E-', 'A', 'B', 'F#')),
                (('C', 'E', 'G'),
-                ('A', 'E', 'C+'),
-                ('C+', 'B-', 'F+'),
-                ('B-', 'D+', 'G'),
-                ('D+', 'A', 'B', 'F+'))]
+                ('A', 'E', 'C#'),
+                ('C#', 'B-', 'F#'),
+                ('B-', 'D#', 'G'),
+                ('D#', 'A', 'B', 'F#'))]
 
     test3 = [set([11, 0, 1, 3, 4, 7, 9]),
              set([11, 0, 1, 3, 4, 6, 8])]
@@ -309,34 +413,34 @@ if __name__ == "__main__":
              set([7, 11, 2]),
              set([3, 7, 10, 1])]
 
-    answer5 = [(('G+', 'B', 'E'),
-                ('G+', 'C+', 'F'),
-                ('A+', 'D', 'F'),
+    answer5 = [(('G#', 'B', 'E'),
+                ('G#', 'C#', 'F'),
+                ('A#', 'D', 'F'),
                 ('D', 'B', 'G'),
-                ('C+', 'A+', 'D+', 'G')),
+                ('C#', 'A#', 'D#', 'G')),
                (('A-', 'B', 'E'),
-                ('A-', 'C+', 'F'),
-                ('A+', 'D', 'F'),
+                ('A-', 'C#', 'F'),
+                ('A#', 'D', 'F'),
                 ('D', 'B', 'G'),
-                ('C+', 'A+', 'D+', 'G')),
-               (('G+', 'B', 'E'),
-                ('G+', 'C+', 'F'),
-                ('A+', 'D', 'F'),
+                ('C#', 'A#', 'D#', 'G')),
+               (('G#', 'B', 'E'),
+                ('G#', 'C#', 'F'),
+                ('A#', 'D', 'F'),
                 ('D', 'B', 'G'),
-                ('C+', 'A+', 'E-', 'G')),
+                ('C#', 'A#', 'E-', 'G')),
                (('A-', 'B', 'E'),
-                ('A-', 'C+', 'F'),
-                ('A+', 'D', 'F'),
+                ('A-', 'C#', 'F'),
+                ('A#', 'D', 'F'),
                 ('D', 'B', 'G'),
-                ('C+', 'A+', 'E-', 'G'))]
+                ('C#', 'A#', 'E-', 'G'))]
 
     test6 = [set([2, 8, 0, 4, 6, 1]),
              set([8, 2, 6, 10, 0]),
              set([7, 1, 5, 11, 6, 10])]
 
-    answer6 = [(('B+', 'C+', 'D', 'E', 'F+', 'G+'),
-                ('B+', 'D', 'F+', 'G+', 'A+'),
-                ('C+', 'E+', 'F+', 'G', 'A+', 'B'))]
+    answer6 = [(('B#', 'C#', 'D', 'E', 'F#', 'G#'),
+                ('B#', 'D', 'F#', 'G#', 'A#'),
+                ('C#', 'E#', 'F#', 'G', 'A#', 'B'))]
 
     # test7
     pcs = [2, 9, 6, 9, 2, 10, 7, 10, 9, 8, 3, 8, 7]
@@ -344,7 +448,7 @@ if __name__ == "__main__":
 
     answer7 = [(('D',),
                 ('A',),
-                ('F+',),
+                ('F#',),
                 ('A',),
                 ('D',),
                 ('B-',),
@@ -359,7 +463,7 @@ if __name__ == "__main__":
     tests = [test0, test1, test2, test3, test4, test5, test6]
     answers = [answer0, answer1, answer2, answer3, answer4, answer5, answer6]
 
-    run_test_7 = True
+    run_test_7 = False
     if run_test_7:
         tests.append(test7)
         answers.append(answer7)
@@ -375,4 +479,3 @@ if __name__ == "__main__":
             complete_success = False
     if complete_success:
         print("All tests passed!")
-
