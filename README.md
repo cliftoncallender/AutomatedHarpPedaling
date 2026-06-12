@@ -7,7 +7,7 @@ described in:
 > Clifton Callender, "Automated Harp Pedaling: A Graph-Theoretic Approach
 > to Pitch Spelling and Pedal Settings," in Mathematics and Computation in
 > Music (MCM 2026), LNAI 16609, Springer, pp. 603-616.
-> https://doi.org/10.1007/978-3-032-27827-2_36
+> https://doi.org/10.1007/978-3-032-27827-2_36 (forthcoming)
 
 ## Overview
 
